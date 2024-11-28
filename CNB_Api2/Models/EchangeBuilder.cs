@@ -8,12 +8,12 @@ namespace CNB_Api2.Models
     {
         string urlCNB = "https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt";
         
-        private Data_Exchange _data_exchange;
-        public Data_Exchange data_exchange
+        private Data_Exchange? _data_exchange;
+        public Data_Exchange? data_exchange
         {
             get {
-                TimeOnly time = new TimeOnly(14, 30, 26);
-                if (_data_exchange.Date.DayOfYear < DateTime.Now.DayOfYear && TimeOnly.FromDateTime(DateTime.Now) > new TimeOnly(14, 30, 00))
+                // provede update jen pokud je to nutné v předem definovaný čas
+                if (_data_exchange?.Date.DayOfYear < DateTime.Now.DayOfYear && TimeOnly.FromDateTime(DateTime.Now) > new TimeOnly(14, 31, 00))
                 { 
                     UpdateData();
                 }
@@ -27,9 +27,13 @@ namespace CNB_Api2.Models
         }
         public void UpdateData()
         {
-            _data_exchange = ReadDataCNB(urlCNB);
+            //_data_exchange = ReadDataCNB(urlCNB);
+            // pokud se nepovede update hodnot tak si neprepise ty puvodni (logika muze byt jina, ja jsem si zvolil tuto)
+            var data = ReadDataCNB(urlCNB);
+            if (data != null) { _data_exchange = data; }
+               
         }
-        public Data_Exchange ReadDataCNB(string url)
+        public Data_Exchange? ReadDataCNB(string url)
         {
             bool anyfault = false;
             Data_Exchange dataechange = new Data_Exchange();
@@ -41,12 +45,21 @@ namespace CNB_Api2.Models
                     new string[] { "\r\n", "\r", "\n" },
                     StringSplitOptions.None
                     ).ToList();
+                // radek 1
                 if (lines.Count > 0)
                 {
                     List<string> firstLine = lines[0].Split(" #", StringSplitOptions.None).ToList();
                     if (firstLine.Count == 2)
                     {
-                        //var dateTime = Convert.ToDateTime(firstLine[0].Replace(" ", ""), "ddMMyyyy");
+                        if (DateTime.TryParseExact(firstLine[0], "dd.MM.yyyy", System.Globalization.CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime dt))
+                        { 
+                            dataechange.Date = DateTime.ParseExact(firstLine[0], "dd.MM.yyyy", System.Globalization.CultureInfo.InvariantCulture); ;
+                        }
+                        else
+                        {
+                            anyfault = true;
+                            ToLog("v hlavičce neni korektni datum");
+                        }
                         var dateTime = DateTime.ParseExact(firstLine[0], "dd.MM.yyyy", System.Globalization.CultureInfo.InvariantCulture);
                         dataechange.Date = dateTime;
                         if (Int32.TryParse(firstLine[1], out int value))
@@ -56,21 +69,23 @@ namespace CNB_Api2.Models
                         else
                         {
                             anyfault = true;
-                            ToLog("neni korektni cítač");
+                            ToLog("v hlavičce neni korektni cítač");
                         }
                     }
                 }
+                List<Data_ExchangeList> dataExchangeList = new List<Data_ExchangeList>();
                 if (lines.Count > 1 && !anyfault)
                 {
-                    //List<string> secondLine = lines[0].Split(" #", StringSplitOptions.None).ToList();
+                    //radek 2
                     if (!String.Equals(lines[1], "země|měna|množství|kód|kurz"))
                     {
                         anyfault = true;
-                        ToLog("neni kompatibilní hlavička");
+                        ToLog("neni kompatibilní hlavička dat");
                     }
+                    //radky ostatni
                     if (lines.Count > 2 && !anyfault)
                     {
-                        List<Data_ExchangeList> dataExchangeList = new List<Data_ExchangeList>();
+                        
                         for (int i = 2; i < lines.Count - 1; i++)
                         {
                             if (!String.IsNullOrEmpty(lines[i]))
@@ -93,13 +108,19 @@ namespace CNB_Api2.Models
 
                             }
                         }
-                        dataechange.DataExchangeList = dataExchangeList;
                     }
                 }
-
-
+                dataechange.DataExchangeList = dataExchangeList;
             }
-            return dataechange;
+            if(anyfault)
+            {
+                return null;
+            }
+            else
+            {
+                return dataechange;
+            }
+            
 
             //return new Data_Exchange();
 
